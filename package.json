@@ -1,0 +1,31 @@
+{
+  "name": "agenticmarket",
+  "version": "1.0.0",
+  "description": "Install and manage paid MCP skills from AgenticMarket",
+  "type": "module",
+  "bin": {
+    "agenticmarket": "./bin/cli.js"
+  },
+  "scripts": {
+    "dev": "node bin/cli.js",
+    "test": "node bin/cli.js --help"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1",
+    "prompts": "^2.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+  "type": "git",
+  "url": "https://github.com/YOUR-USERNAME/agenticmarket-cli"
+  },
+  "homepage": "https://agenticmarket.dev",
+  "bugs": {
+  "url": "https://github.com/YOUR-USERNAME/agenticmarket-cli/issues"
+  },
+  "keywords": ["mcp", "ai", "skills", "marketplace", "claude", "cursor"],
+  "license": "MIT"
+}
