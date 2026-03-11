@@ -22,7 +22,7 @@ import { balance } from "../src/commands/balance.js";
 import { logout } from "../src/commands/logout.js";
 import { whoami } from "../src/commands/whoami.js";
 
-const VERSION = "0.1.0";
+const VERSION = "1.0.0";
 const args = process.argv.slice(2);
 const command = args[0];
 const argument = args[1];
