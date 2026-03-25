@@ -5,21 +5,25 @@
  * Runs as a local stdio MCP server.
  * Reads API key from ~/.agenticmarket/config.json at runtime.
  *
- * Uses the official MCP SDK to:
- *   1. Connect to the upstream AgenticMarket infrastructure via Streamable HTTP (SSE fallback)
- *   2. Expose a proper stdio MCP server locally (handles initialize, tools/list, etc.)
- *   3. Bridge all requests transparently — the local client (Antigravity, Cursor, etc.)
- *      speaks normal MCP stdio; we handle the handshake and forward each call upstream.
+ * Architecture:
+ *   1. Connect to the upstream AgenticMarket cloud worker via Streamable HTTP (SSE fallback)
+ *   2. Fetch the upstream tool list
+ *   3. Spin up a low-level MCP Server (no Zod required — raw JSON Schema passes through)
+ *   4. Handle tools/list and tools/call locally, forwarding calls upstream
  *
- * This fixes "failed to get tools: calling tools/list: invalid request" because
- * Antigravity now gets a proper MCP handshake from the local McpServer, not raw HTTP.
+ * Using the low-level Server instead of McpServer avoids the Zod schema
+ * requirement that throws "expected a Zod schema or ToolAnnotations".
  */
 
+import { Server }                        from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport }          from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Client }                        from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport }            from "@modelcontextprotocol/sdk/client/sse.js";
-import { McpServer }                     from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport }          from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { getApiKey, PROXY_BASE_URL }     from "../config.js";
 
 export async function proxy(rawServerName) {
@@ -43,43 +47,47 @@ export async function proxy(rawServerName) {
   const upstreamUrl = `${PROXY_BASE_URL}/mcp/${username}/${server}`;
   process.stderr.write(`[AgenticMarket] Proxy started → ${upstreamUrl}\n`);
 
-  const authHeaders = { "x-api-key": apiKey };
-
-  // ── Step 1: Connect to upstream via Streamable HTTP (with SSE fallback) ──────
+  // ── Step 1: Connect to upstream ─────────────────────────────────────────────
   const upstreamClient = new Client({
     name:    "agenticmarket-proxy",
-    version: "1.3.0",
+    version: "1.0.0",
   });
 
-  let connectedTransport;
+  const makeHeaders = () => ({ "x-api-key": getApiKey() });
 
-  // Try Streamable HTTP first (MCP spec ≥ 2025-03-26)
+  // Try Streamable HTTP first, fall back to SSE
+  let connected = false;
+
   try {
     const transport = new StreamableHTTPClientTransport(
       new URL(upstreamUrl),
-      { requestInit: { headers: authHeaders } }
+      { requestInit: { headers: makeHeaders() } }
     );
     await upstreamClient.connect(transport);
-    connectedTransport = transport;
+    connected = true;
     process.stderr.write("[AgenticMarket] Connected via Streamable HTTP\n");
-  } catch (httpErr) {
-    // Fall back to SSE transport (older servers)
-    process.stderr.write(`[AgenticMarket] Streamable HTTP failed (${httpErr.message}), trying SSE...\n`);
+  } catch (err) {
+    process.stderr.write(
+      `[AgenticMarket] Streamable HTTP failed (${err.message}), trying SSE...\n`
+    );
+  }
+
+  if (!connected) {
     try {
-      const sseTransport = new SSEClientTransport(
+      const transport = new SSEClientTransport(
         new URL(upstreamUrl),
-        { requestInit: { headers: authHeaders } }
+        { requestInit: { headers: makeHeaders() } }
       );
-      await upstreamClient.connect(sseTransport);
-      connectedTransport = sseTransport;
+      await upstreamClient.connect(transport);
+      connected = true;
       process.stderr.write("[AgenticMarket] Connected via SSE\n");
-    } catch (sseErr) {
-      process.stderr.write(`[AgenticMarket] Failed to connect: ${sseErr.message}\n`);
+    } catch (err) {
+      process.stderr.write(`[AgenticMarket] Failed to connect: ${err.message}\n`);
       process.exit(1);
     }
   }
 
-  // ── Step 2: Discover tools from upstream ────────────────────────────────────
+  // ── Step 2: Fetch tool list from upstream ────────────────────────────────────
   let upstreamTools = [];
   try {
     const { tools } = await upstreamClient.listTools();
@@ -90,46 +98,57 @@ export async function proxy(rawServerName) {
     process.exit(1);
   }
 
-  // ── Step 3: Create a local stdio MCP server that proxies each tool ──────────
-  const proxyServer = new McpServer({
-    name:    `agenticmarket/${server}`,
-    version: "1.3.0",
+  // ── Step 3: Create low-level MCP Server (accepts raw JSON Schema, no Zod) ───
+  const localServer = new Server(
+    { name: `agenticmarket/${server}`, version: "1.0.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  // Handle tools/list — return upstream tools verbatim
+  localServer.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: upstreamTools.map((t) => ({
+      name:        t.name,
+      description: t.description ?? "",
+      inputSchema: t.inputSchema ?? { type: "object", properties: {} },
+    })),
+  }));
+
+  // Handle tools/call — forward to upstream
+  localServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    const tool = upstreamTools.find((t) => t.name === name);
+    if (!tool) {
+      return {
+        content: [{ type: "text", text: `Unknown tool: ${name}` }],
+        isError: true,
+      };
+    }
+
+    try {
+      const result = await upstreamClient.callTool({
+        name,
+        arguments: args ?? {},
+      });
+      return result;
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${err.message}` }],
+        isError: true,
+      };
+    }
   });
 
-  for (const tool of upstreamTools) {
-    // Re-register each upstream tool locally with the same schema
-    proxyServer.tool(
-      tool.name,
-      tool.description ?? "",
-      tool.inputSchema?.properties ?? {},
-      async (args) => {
-        try {
-          const result = await upstreamClient.callTool({
-            name:      tool.name,
-            arguments: args,
-          });
-          return result;
-        } catch (err) {
-          return {
-            content: [{ type: "text", text: `Error: ${err.message}` }],
-            isError: true,
-          };
-        }
-      }
-    );
-  }
-
-  // ── Step 4: If no tools found, register a placeholder so the server stays alive
-  if (upstreamTools.length === 0) {
-    process.stderr.write("[AgenticMarket] Warning: no tools found from upstream\n");
-  }
-
-  // ── Step 5: Start the stdio MCP server for the local client ─────────────────
+  // ── Step 4: Start stdio transport for the local MCP client ──────────────────
   const downstreamTransport = new StdioServerTransport();
-  await proxyServer.connect(downstreamTransport);
+  await localServer.connect(downstreamTransport);
   process.stderr.write("[AgenticMarket] Ready — waiting for requests\n");
 
-  // Keep alive: if upstream disconnects, log it but let stdio server stay up
-  process.on("SIGINT",  () => { upstreamClient.close().catch(() => {}); process.exit(0); });
-  process.on("SIGTERM", () => { upstreamClient.close().catch(() => {}); process.exit(0); });
+  // Graceful shutdown
+  const shutdown = async () => {
+    await upstreamClient.close().catch(() => {});
+    process.exit(0);
+  };
+  process.on("SIGINT",  shutdown);
+  process.on("SIGTERM", shutdown);
 }
