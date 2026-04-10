@@ -5,9 +5,10 @@
  *
  * Commands:
  *   agenticmarket auth <api-key>            — save your API key
- *   agenticmarket install <user>/<skill>    — add skill to your IDE
- *   agenticmarket remove <skill>            — remove skill from your IDE
- *   agenticmarket list                      — show installed skills
+ *   agenticmarket install <user>/<skill>    — add an official server to your IDE
+ *   agenticmarket install <slug>            — add a community server to your IDE
+ *   agenticmarket remove <server-name>      — remove an installed MCP server
+ *   agenticmarket list                      — show installed servers
  *   agenticmarket balance                   — check your credits
  *   agenticmarket whoami                    — display current user info
  *   agenticmarket logout                    — clear API key
@@ -16,6 +17,7 @@
 import chalk from "chalk";
 import { auth } from "../src/commands/auth.js";
 import { install } from "../src/commands/install.js";
+import { installCommunity } from "../src/commands/install-community.js";
 import { remove } from "../src/commands/remove.js";
 import { list } from "../src/commands/list.js";
 import { balance } from "../src/commands/balance.js";
@@ -23,7 +25,7 @@ import { logout } from "../src/commands/logout.js";
 import { whoami } from "../src/commands/whoami.js";
 import { proxy } from "../src/commands/proxy.js";
 
-const VERSION = "1.3.1";
+const VERSION = "1.4.0";
 const args = process.argv.slice(2);
 const command = args[0];
 const argument = args[1];
@@ -143,7 +145,8 @@ const help = () => {
   };
 
   cmd("auth",    "<api-key>",           "Save your API key");
-  cmd("install", "<username>/<server>", "Install an MCP server to your IDE");
+  cmd("install", "<username>/<server>", "Install an official MCP server");
+  cmd("install", "<slug>",              "Install a community MCP server");
   cmd("remove",  "<server-name>",       "Remove an installed MCP server");
   cmd("list",    "",                    "Show all installed MCP servers");
   cmd("balance", "",                    "Check your credit balance");
@@ -160,9 +163,17 @@ const help = () => {
 
   const ex = (line) => console.log(`  ${chalk.dim("$")} ${chalk.white(line)}`);
   ex("agenticmarket auth am_live_xxxxxxxxxxxx");
+  c.gap();
+  console.log(chalk.dim("  # Official servers (proxy)"));
   ex("agenticmarket install shekhar/smart-server");
   ex("agenticmarket install shekhar/web-scraper");
+  c.gap();
+  console.log(chalk.dim("  # Community servers (direct)"));
+  ex("agenticmarket install fetch-mcp-server");
+  ex("agenticmarket install github-mcp-server");
+  c.gap();
   ex("agenticmarket remove web-scraper");
+  ex("agenticmarket list");
   ex("agenticmarket balance");
 
   c.gap();
@@ -206,13 +217,22 @@ switch (command) {
     break;
 
   case "install":
-    if (!argument) argError("install", "<username>/<skill>");
-    await install(argument);
+    if (!argument) argError("install", "<username>/<server> or <slug>");
+    // Official servers use "username/server" format, community use a plain slug
+    if (argument.includes("/")) {
+      await install(argument);
+    } else {
+      await installCommunity(argument);
+    }
     break;
     
   case "i":
-    if (!argument) argError("install", "<username>/<skill>");
-    await install(argument);
+    if (!argument) argError("install", "<username>/<server> or <slug>");
+    if (argument.includes("/")) {
+      await install(argument);
+    } else {
+      await installCommunity(argument);
+    }
     break;
 
   case "remove":

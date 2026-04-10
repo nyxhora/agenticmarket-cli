@@ -21,6 +21,7 @@ import fs   from "fs";
 import path from "path";
 import os   from "os";
 import yaml from "yaml";
+import * as toml from "smol-toml";
 
 // ── AgenticMarket own config ───────────────────────────────────────────────────
 
@@ -276,7 +277,9 @@ export const IDE_CONFIGS = [
     },
   },
 
-  // ── Codex ───────────────────────────────────────────────────────────────────
+  // ── Codex (global) ──────────────────────────────────────────────────────────
+  // Codex stores MCP config in ~/.codex/config.toml under [mcp_servers.<name>]
+  // Ref: https://antigravity.google/docs/mcp (Codex section)
   {
     id:   "codex-global",
     name: "Codex (global)",
@@ -285,13 +288,42 @@ export const IDE_CONFIGS = [
     runningIDEId: null,
     configPath: path.join(
       process.env.CODEX_HOME ?? path.join(home, ".codex"),
-      "config.json",
+      "config.toml",
     ),
-    configKey: "mcpServers",
+    configKey: "mcp_servers",
     detect() {
       return fs.existsSync(
         process.env.CODEX_HOME ?? path.join(home, ".codex"),
       );
+    },
+    // Codex only allows: command, args, env, env_vars, cwd + optional flags
+    transformEntry(entry) {
+      return {
+        command: entry.command,
+        args:    entry.args ?? [],
+        ...(entry.env ? { env: entry.env } : {}),
+      };
+    },
+  },
+
+  // ── Codex (project) ─────────────────────────────────────────────────────────
+  {
+    id:   "codex-project",
+    name: "Codex (project)",
+    icon: "🧠",
+    scope: "project",
+    runningIDEId: null,
+    configPath: path.join(process.cwd(), ".codex", "config.toml"),
+    configKey: "mcp_servers",
+    detect() {
+      return fs.existsSync(path.join(process.cwd(), ".codex"));
+    },
+    transformEntry(entry) {
+      return {
+        command: entry.command,
+        args:    entry.args ?? [],
+        ...(entry.env ? { env: entry.env } : {}),
+      };
     },
   },
 
@@ -461,12 +493,16 @@ export function getInstalledIDEs() {
  */
 export function readMCPConfig(filePath, configKey = "mcpServers") {
   const isYaml = filePath.endsWith(".yaml") || filePath.endsWith(".yml");
+  const isToml = filePath.endsWith(".toml");
 
   try {
-    if (!fs.existsSync(filePath)) return { mcpServers: {}, _key: configKey, _isYaml: isYaml };
+    if (!fs.existsSync(filePath)) return { mcpServers: {}, _key: configKey, _isYaml: isYaml, _isToml: isToml };
 
     const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = isYaml ? yaml.parse(raw) || {} : JSON.parse(raw) || {};
+    let parsed;
+    if (isToml)      parsed = toml.parse(raw) || {};
+    else if (isYaml) parsed = yaml.parse(raw) || {};
+    else             parsed = JSON.parse(raw) || {};
 
     if (!parsed[configKey]) parsed[configKey] = isYaml && configKey === "extensions" ? [] : {};
 
@@ -476,7 +512,7 @@ export function readMCPConfig(filePath, configKey = "mcpServers") {
         if (item.name) internalMap[item.name] = item;
       }
     } else {
-      internalMap = parsed[configKey];
+      internalMap = { ...(parsed[configKey] ?? {}) };
     }
 
     return {
@@ -484,9 +520,10 @@ export function readMCPConfig(filePath, configKey = "mcpServers") {
       mcpServers: internalMap, // unified internal alias
       _key: configKey,
       _isYaml: isYaml,
+      _isToml: isToml,
     };
   } catch {
-    return { mcpServers: {}, _key: configKey, _isYaml: isYaml };
+    return { mcpServers: {}, _key: configKey, _isYaml: isYaml, _isToml: isToml };
   }
 }
 
@@ -500,9 +537,10 @@ export function writeMCPConfig(filePath, config) {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  const key = config._key ?? "mcpServers";
+  const key    = config._key    ?? "mcpServers";
   const isYaml = config._isYaml ?? false;
-  const { mcpServers, _key, _isYaml, ...rest } = config;
+  const isToml = config._isToml ?? false;
+  const { mcpServers, _key, _isYaml, _isToml, ...rest } = config;
 
   let finalPayload;
   if (isYaml && key === "extensions") {
@@ -512,7 +550,10 @@ export function writeMCPConfig(filePath, config) {
     finalPayload = { ...rest, [key]: mcpServers };
   }
 
-  if (isYaml) {
+  if (isToml) {
+    // smol-toml stringify — preserves all non-MCP settings already in the file
+    fs.writeFileSync(filePath, toml.stringify(finalPayload));
+  } else if (isYaml) {
     fs.writeFileSync(filePath, yaml.stringify(finalPayload));
   } else {
     fs.writeFileSync(
@@ -542,5 +583,172 @@ export function buildMCPEntry(server, username, description, price_cents) {
     creatorUrl:  `https://agenticmarket.dev/${username}`,
     serverUrl:   `https://agenticmarket.dev/${username}/${server}`,
     installedAt: new Date().toLocaleString(),
+  };
+}
+
+// ── Community server helpers ───────────────────────────────────────────────────
+
+const COMMUNITY_FILE = path.join(AM_CONFIG_DIR, "community.json");
+
+/**
+ * loadCommunityRegistry()
+ *
+ * Reads ~/.agenticmarket/community.json — the local source of truth for
+ * which community servers are installed, their config keys, and target IDEs.
+ */
+export function loadCommunityRegistry() {
+  if (!fs.existsSync(COMMUNITY_FILE)) return {};
+  try { return JSON.parse(fs.readFileSync(COMMUNITY_FILE, "utf-8")); }
+  catch { return {}; }
+}
+
+/**
+ * saveCommunityRegistry(data)
+ *
+ * Persists the full community registry object to disk.
+ */
+export function saveCommunityRegistry(data) {
+  if (!fs.existsSync(AM_CONFIG_DIR)) fs.mkdirSync(AM_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(COMMUNITY_FILE, JSON.stringify(data, null, 2));
+}
+
+/**
+ * addCommunityInstall(slug, entry)
+ *
+ * Adds or updates a single community server record in the registry.
+ * entry shape: { name, slug, configKey, author, description, installedAt, ides }
+ */
+export function addCommunityInstall(slug, entry) {
+  const registry = loadCommunityRegistry();
+  registry[slug] = entry;
+  saveCommunityRegistry(registry);
+}
+
+/**
+ * removeCommunityInstall(slug)
+ *
+ * Removes a community server record from the local registry.
+ * Returns the removed entry, or null if it wasn't present.
+ */
+export function removeCommunityInstall(slug) {
+  const registry = loadCommunityRegistry();
+  const entry = registry[slug] ?? null;
+  if (entry) {
+    delete registry[slug];
+    saveCommunityRegistry(registry);
+  }
+  return entry;
+}
+
+/**
+ * getCommunityByConfigKey(configKey)
+ *
+ * Looks up a community server by the MCP config key (e.g. "fetch").
+ * Returns { slug, ...entry } or null.
+ */
+export function getCommunityByConfigKey(configKey) {
+  const registry = loadCommunityRegistry();
+  for (const [slug, entry] of Object.entries(registry)) {
+    if (entry.configKey === configKey) return { slug, ...entry };
+  }
+  return null;
+}
+
+/**
+ * COMMUNITY_IDE_MAP
+ *
+ * Maps community_server_ide_config.ide values (from the DB) to CLI IDE_CONFIGS ids.
+ * Used to match API-provided IDE configs to locally detected IDEs.
+ */
+export const COMMUNITY_IDE_MAP = {
+  "cursor":         ["cursor-global", "cursor-project"],
+  "vscode":         ["vscode-project", "vscode-global"],
+  "claude-desktop": ["claude-desktop"],
+  "claude-code":    ["claude-code-global", "claude-code-project"],
+  "windsurf":       ["windsurf-global"],
+  "gemini-cli":     ["gemini-cli-global", "gemini-cli-project"],
+  "zed":            ["zed-global"],
+  "cline":          ["cline-vscode"],
+  "codex":          ["codex-global", "codex-project"],
+  "antigravity":    ["antigravity-global", "antigravity-project"],
+  "copilot":        ["copilot-global"],
+  "goose":          ["goose-global"],
+};
+
+/**
+ * matchIdeToConfig(cliIdeId, apiConfigs)
+ *
+ * Given a CLI IDE id (e.g. "cursor-global") and an array of API configs
+ * (each with an `ide` field like "cursor"), returns the matching config or null.
+ */
+export function matchIdeToConfig(cliIdeId, apiConfigs) {
+  for (const config of apiConfigs) {
+    const mappedIds = COMMUNITY_IDE_MAP[config.ide] || [];
+    if (mappedIds.includes(cliIdeId)) return config;
+  }
+  return null;
+}
+
+/**
+ * parseCommunityIdeConfig(configStr)
+ *
+ * Parses the config JSON string stored in community_server_ide_config.config.
+ * Extracts the server entry name and the MCP entry object.
+ *
+ * Handles all known formats:
+ *   - { "mcpServers": { "name": { ... } } }      → cursor, claude, etc.
+ *   - { "servers":    { "name": { ... } } }       → vscode
+ *   - { "context_servers": { "name": { ... } } }  → zed
+ *   - { "mcp_servers": { "name": { ... } } }      → codex
+ *   - { "extensions":  [ { ... } ] }               → goose (array)
+ *   - { "command": "...", "args": [...] }           → bare entry
+ *
+ * Returns { name: string|null, entry: object } or null on parse failure.
+ */
+export function parseCommunityIdeConfig(configStr) {
+  try {
+    const parsed = JSON.parse(configStr);
+
+    // Try known wrapper keys (object maps)
+    const wrapperKeys = ["mcpServers", "servers", "context_servers", "mcp_servers", "extensions"];
+    for (const key of wrapperKeys) {
+      if (parsed[key] && typeof parsed[key] === "object" && !Array.isArray(parsed[key])) {
+        const entries = Object.entries(parsed[key]);
+        if (entries.length > 0) {
+          return { name: entries[0][0], entry: entries[0][1] };
+        }
+      }
+      // Goose uses an array under "extensions"
+      if (parsed[key] && Array.isArray(parsed[key]) && parsed[key].length > 0) {
+        const first = parsed[key][0];
+        return { name: first.name ?? null, entry: first };
+      }
+    }
+
+    // Bare entry — has command or cmd directly
+    if (parsed.command || parsed.cmd) {
+      return { name: null, entry: parsed };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * buildCommunityFallbackEntry(installCommand)
+ *
+ * Builds a generic stdio MCP entry from an install command string
+ * like "npx -y @modelcontextprotocol/server-fetch".
+ *
+ * Used as a fallback when no IDE-specific config is available.
+ */
+export function buildCommunityFallbackEntry(installCommand) {
+  const parts = installCommand.trim().split(/\s+/);
+  return {
+    type:    "stdio",
+    command: parts[0],
+    args:    parts.slice(1),
   };
 }

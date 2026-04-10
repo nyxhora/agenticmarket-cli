@@ -1,6 +1,16 @@
 /**
  * src/commands/remove.js
+ *
  * agenticmarket remove <server-name>
+ *
+ * Removes an installed MCP server from all IDE configs.
+ * Supports both official (proxy) and community (direct) servers.
+ *
+ * For community servers, the argument can be:
+ *   - The config key (e.g. "fetch")    → looked up in community registry
+ *   - The slug (e.g. "fetch-mcp-server") → looked up in community registry
+ *
+ * For official servers, the argument is the config key as always.
  */
 
 import chalk from "chalk";
@@ -10,6 +20,9 @@ import {
   getInstalledIDEs,
   readMCPConfig,
   writeMCPConfig,
+  loadCommunityRegistry,
+  getCommunityByConfigKey,
+  removeCommunityInstall,
 } from "../config.js";
 
 export async function remove(serverName) {
@@ -35,14 +48,39 @@ export async function remove(serverName) {
     process.exit(1);
   }
 
+  // ── Resolve server name ─────────────────────────────────
+  // Check if the argument matches a community slug or community configKey
+  const registry = loadCommunityRegistry();
+  let communityEntry = null;
+  let configKey = serverName;      // the actual key in mcpServers
+  let communitySlug = null;        // the community slug for registry cleanup
+
+  // 1. Direct slug match in registry
+  if (registry[serverName]) {
+    communityEntry = registry[serverName];
+    configKey = communityEntry.configKey;
+    communitySlug = serverName;
+  }
+  // 2. Match by configKey in registry
+  else {
+    const byKey = getCommunityByConfigKey(serverName);
+    if (byKey) {
+      communityEntry = byKey;
+      configKey = byKey.configKey;
+      communitySlug = byKey.slug;
+    }
+  }
+
+  const isCommunity = !!communityEntry;
+
   // ── Find IDEs that have this server ─────────────────────
   const installedIDEs  = getInstalledIDEs();
   const idesWithServer = installedIDEs.filter((ide) => {
     const config = readMCPConfig(ide.configPath, ide.configKey);
-    return !!config.mcpServers?.[serverName];
+    return !!config.mcpServers?.[configKey];
   });
 
-  if (idesWithServer.length === 0) {
+  if (idesWithServer.length === 0 && !isCommunity) {
     console.log(
       `  ${chalk.yellow("⚠")}  ${chalk.yellow(`"${serverName}" is not installed in any IDE`)}`
     );
@@ -56,8 +94,14 @@ export async function remove(serverName) {
 
   // ── Show what will be removed ───────────────────────────
   console.log(
-    `  ${chalk.dim("Server")}   ${chalk.white.bold(serverName)}`
+    `  ${chalk.dim("Server")}   ${chalk.white.bold(configKey)}` +
+    (isCommunity ? chalk.magenta("  community") : "")
   );
+  if (isCommunity && communitySlug !== configKey) {
+    console.log(
+      `  ${chalk.dim("Slug")}     ${chalk.dim(communitySlug)}`
+    );
+  }
   console.log(
     `  ${chalk.dim("Found in")} ${chalk.white(idesWithServer.length + " IDE" + (idesWithServer.length !== 1 ? "s" : ""))}`
   );
@@ -75,7 +119,7 @@ export async function remove(serverName) {
   const { confirm } = await prompts({
     type: "confirm",
     name: "confirm",
-    message: `  Remove ${chalk.cyan(serverName)}?`,
+    message: `  Remove ${isCommunity ? chalk.magenta(configKey) : chalk.cyan(configKey)}?`,
     initial: false,
   });
 
@@ -101,7 +145,7 @@ export async function remove(serverName) {
   for (const ide of idesWithServer) {
     try {
       const config = readMCPConfig(ide.configPath, ide.configKey);
-      delete config.mcpServers[serverName];
+      delete config.mcpServers[configKey];
       writeMCPConfig(ide.configPath, config);
       console.log(
         `  ${chalk.green("✓")}  ${ide.icon}  ${chalk.white(ide.name)}`
@@ -115,6 +159,11 @@ export async function remove(serverName) {
     }
   }
 
+  // ── Remove from community registry ──────────────────────
+  if (isCommunity && communitySlug) {
+    removeCommunityInstall(communitySlug);
+  }
+
   // ── Summary ─────────────────────────────────────────────
   console.log("");
   console.log(chalk.dim(`  ${"─".repeat(48)}`));
@@ -122,8 +171,9 @@ export async function remove(serverName) {
 
   if (failed === 0) {
     console.log(
-      `  ${chalk.green("✓")}  ${chalk.green.bold(`${serverName} removed`)}` +
-      chalk.dim(`  from ${removed} IDE${removed !== 1 ? "s" : ""}`)
+      `  ${chalk.green("✓")}  ${chalk.green.bold(`${configKey} removed`)}` +
+      chalk.dim(`  from ${removed} IDE${removed !== 1 ? "s" : ""}`) +
+      (isCommunity ? chalk.dim("  + community registry") : "")
     );
     console.log("");
     console.log(`  ${chalk.dim("Restart your IDE to apply changes.")}`);
