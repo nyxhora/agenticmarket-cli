@@ -5,6 +5,9 @@
  *
  * Commands:
  *   agenticmarket create <name>              — scaffold a new MCP server project
+ *   agenticmarket create <name> --json        — scaffold with JSON output (CI mode)
+ *   agenticmarket add tool <name>             — add a new tool to an existing project
+ *   agenticmarket validate                    — pre-publish security audit
  *   agenticmarket auth <api-key>            — save your API key
  *   agenticmarket install <user>/<skill>    — add an official server to your IDE
  *   agenticmarket install <slug>            — add a community server to your IDE
@@ -26,11 +29,14 @@ import { logout } from "../src/commands/logout.js";
 import { whoami } from "../src/commands/whoami.js";
 import { proxy } from "../src/commands/proxy.js";
 import { create } from "../src/commands/create.js";
+import { validate } from "../src/commands/validate.js";
+import { addTool } from "../src/commands/add-tool.js";
 
-const VERSION = "1.4.1";
+const VERSION = "1.5.0";
 const args = process.argv.slice(2);
 const command = args[0];
 const argument = args[1];
+const flags = args.filter((a) => a.startsWith("--"));
 
 // ─── Terminal UI Primitives ───────────────────────────────────────────────────
 
@@ -146,15 +152,18 @@ const help = () => {
     console.log(`  ${col1}${col2}${col3}`);
   };
 
-  cmd("create",  "<name>",              "Scaffold a new MCP server project");
-  cmd("auth",    "<api-key>",           "Save your API key");
-  cmd("install", "<username>/<server>", "Install an official MCP server");
-  cmd("install", "<slug>",              "Install a community MCP server");
-  cmd("remove",  "<server-name>",       "Remove an installed MCP server");
-  cmd("list",    "",                    "Show all installed MCP servers");
-  cmd("balance", "",                    "Check your credit balance");
-  cmd("whoami",  "",                    "Show current account info");
-  cmd("logout",  "",                    "Log out of your account");
+  cmd("create",   "<name>",              "Scaffold a new MCP server project");
+  cmd("create",   "<name> --json",       "Scaffold with JSON output (CI mode)");
+  cmd("add",      "tool <name>",         "Add a new tool to an existing project");
+  cmd("validate", "",                    "Pre-publish security audit");
+  cmd("auth",     "<api-key>",           "Save your API key");
+  cmd("install",  "<username>/<server>", "Install an official MCP server");
+  cmd("install",  "<slug>",              "Install a community MCP server");
+  cmd("remove",   "<server-name>",       "Remove an installed MCP server");
+  cmd("list",     "",                    "Show all installed MCP servers");
+  cmd("balance",  "",                    "Check your credit balance");
+  cmd("whoami",   "",                    "Show current account info");
+  cmd("logout",   "",                    "Log out of your account");
 
   c.gap();
   c.divider();
@@ -218,7 +227,20 @@ const unknownCmd = (cmd) => {
 
 switch (command) {
   case "create":
-    await create(argument);
+    await create(argument, { json: flags.includes("--json") });
+    break;
+
+  case "add":
+    if (argument === "tool") {
+      await addTool(args[2]);
+    } else {
+      argError("add", "tool <name>");
+    }
+    break;
+
+  case "validate":
+    const result = await validate();
+    if (result.fail > 0) process.exit(1);
     break;
 
   case "auth":

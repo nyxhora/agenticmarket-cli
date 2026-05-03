@@ -115,17 +115,20 @@ function validateName(name) {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
-export async function create(projectName) {
-  console.log("");
+export async function create(projectName, options = {}) {
+  const jsonMode = options.json === true;
+  const log = jsonMode ? () => {} : console.log;
+
+  log("");
 
   // ── Header ──────────────────────────────────────────────────────────────
   const pad = "═".repeat(52);
-  console.log(chalk.cyan.bold(`╔${pad}╗`));
-  console.log(
+  log(chalk.cyan.bold(`╔${pad}╗`));
+  log(
     chalk.cyan.bold(`║  ${"✦ AgenticMarket  create-mcp".padEnd(50)}║`),
   );
-  console.log(chalk.cyan.bold(`╚${pad}╝`));
-  console.log("");
+  log(chalk.cyan.bold(`╚${pad}╝`));
+  log("");
 
   // ── Project name ────────────────────────────────────────────────────────
 
@@ -135,14 +138,22 @@ export async function create(projectName) {
     // Validate CLI-provided name
     const validation = validateName(name);
     if (validation !== true) {
-      console.log(`  ${chalk.red("✗")} ${chalk.red(validation)}`);
-      console.log(
-        `  ${chalk.dim("Usage:")} ${chalk.cyan("agenticmarket create")} ${chalk.yellow("<project-name>")}`,
-      );
+      if (jsonMode) {
+        console.log(JSON.stringify({ error: validation }));
+      } else {
+        console.log(`  ${chalk.red("✗")} ${chalk.red(validation)}`);
+        console.log(
+          `  ${chalk.dim("Usage:")} ${chalk.cyan("agenticmarket create")} ${chalk.yellow("<project-name>")}`,
+        );
+      }
       console.log("");
       process.exit(1);
     }
   } else {
+    if (jsonMode) {
+      console.log(JSON.stringify({ error: "Project name required in --json mode" }));
+      process.exit(1);
+    }
     const res = await prompts({
       type: "text",
       name: "name",
@@ -162,20 +173,24 @@ export async function create(projectName) {
   const targetDir = path.resolve(process.cwd(), name);
 
   if (fs.existsSync(targetDir)) {
-    console.log(
-      `  ${chalk.red("✗")} Folder ${chalk.white.bold(name)} already exists`,
-    );
-    console.log(
-      `  ${chalk.dim("Choose a different name or delete the existing folder.")}`,
-    );
+    if (jsonMode) {
+      console.log(JSON.stringify({ error: `Folder ${name} already exists` }));
+    } else {
+      console.log(
+        `  ${chalk.red("✗")} Folder ${chalk.white.bold(name)} already exists`,
+      );
+      console.log(
+        `  ${chalk.dim("Choose a different name or delete the existing folder.")}`,
+      );
+    }
     console.log("");
     process.exit(1);
   }
 
-  console.log(
+  log(
     `  ${chalk.dim("Creating")} ${chalk.white.bold(name)} ${chalk.dim("in")} ${chalk.dim(targetDir)}`,
   );
-  console.log("");
+  log("");
 
   // ── Template selection ──────────────────────────────────────────────────
 
@@ -333,12 +348,14 @@ export async function create(projectName) {
 
   // ── Copy template ───────────────────────────────────────────────────────
 
-  console.log("");
-  const spinner = ora({
-    text: chalk.dim("Scaffolding project..."),
-    color: "cyan",
-    spinner: "dots",
-  }).start();
+  log("");
+  const spinner = jsonMode
+    ? { start: () => spinner, stop: () => {} }
+    : ora({
+        text: chalk.dim("Scaffolding project..."),
+        color: "cyan",
+        spinner: "dots",
+      }).start();
 
   try {
     const templateDir = path.join(TEMPLATES_DIR, template);
@@ -398,63 +415,80 @@ export async function create(projectName) {
 
     spinner.stop();
 
+    // ── JSON output ────────────────────────────────────────────────────
+
+    if (jsonMode) {
+      console.log(JSON.stringify({
+        name,
+        path: targetDir,
+        template,
+        deploy,
+        secret: enableSecret,
+        tools: template === "api-wrapper" ? ["get_data"] : ["echo"],
+        mcpName: tokens.__MCP_NAME__,
+        scripts: { dev: "npm run dev", inspect: "npm run inspect", validate: "npm run validate" },
+      }));
+      return;
+    }
+
     // ── Success output ────────────────────────────────────────────────────
 
-    console.log(`  ${chalk.green("✓")} Created ${chalk.white.bold(name + "/")}`);
-    console.log(`  ${chalk.green("✓")} .mcp/server.json`);
-    console.log(
+    log(`  ${chalk.green("✓")} Created ${chalk.white.bold(name + "/")}`);
+    log(`  ${chalk.green("✓")} .mcp/server.json`);
+    log(
       `  ${chalk.green("✓")} src/ ${chalk.dim("(Hono + MCP SDK + security middleware)")}`,
     );
 
     if (deploy === "cloudflare")
-      console.log(`  ${chalk.green("✓")} wrangler.toml`);
+      log(`  ${chalk.green("✓")} wrangler.toml`);
     if (deploy === "docker")
-      console.log(`  ${chalk.green("✓")} Dockerfile`);
+      log(`  ${chalk.green("✓")} Dockerfile`);
 
-    console.log(`  ${chalk.green("✓")} .env.example`);
-    console.log(`  ${chalk.green("✓")} README.md`);
+    log(`  ${chalk.green("✓")} .env.example`);
+    log(`  ${chalk.green("✓")} AGENTS.md`);
+    log(`  ${chalk.green("✓")} README.md`);
 
     if (enableSecret) {
-      console.log(
+      log(
         `  ${chalk.green("✓")} .env ${chalk.dim("(secret auto-generated)")}`,
       );
     }
 
-    console.log("");
-    console.log(chalk.dim(`  ${"─".repeat(52)}`));
-    console.log("");
+    log("");
+    log(chalk.dim(`  ${"─".repeat(52)}`));
+    log("");
 
     // ── Next steps ──────────────────────────────────────────────────────
 
-    console.log(chalk.bold("  Next:"));
-    console.log(`    ${chalk.cyan("cd")} ${name}`);
-    console.log(`    ${chalk.cyan("npm install")}`);
+    log(chalk.bold("  Next:"));
+    log(`    ${chalk.cyan("cd")} ${name}`);
+    log(`    ${chalk.cyan("npm install")}`);
     if (!enableSecret) {
-      console.log(
+      log(
         `    ${chalk.cyan("cp")} .env.example .env   ${chalk.dim("# add your MCP_SECRET")}`,
       );
     }
-    console.log(
+    log(
       `    ${chalk.cyan("npm run inspect")}       ${chalk.dim("# opens MCP Inspector")}`,
     );
 
-    console.log("");
-    console.log(chalk.dim(`  ${"─".repeat(52)}`));
+    log("");
+    log(chalk.dim(`  ${"─".repeat(52)}`));
 
     // ── AgenticMarket CTA ───────────────────────────────────────────────
 
-    console.log(
+    log(
       `  ${chalk.bold("Publish this server and earn per call:")}`,
     );
-    console.log(
+    log(
       `  ${chalk.cyan("→")} ${chalk.cyan.underline("https://agenticmarket.dev/dashboard/submit")}`,
     );
-    console.log("");
-    console.log(
+    log("");
+    log(
       `  ${chalk.dim("Docs:")}  ${chalk.cyan.underline("https://agenticmarket.dev/docs/publishing")}`,
     );
-    console.log(chalk.dim(`  ${"─".repeat(52)}`));
-    console.log("");
+    log(chalk.dim(`  ${"─".repeat(52)}`));
+    log("");
   } catch (err) {
     spinner.stop();
     console.log(`  ${chalk.red("✗")} Scaffold failed: ${err.message}`);

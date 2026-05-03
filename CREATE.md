@@ -66,9 +66,9 @@ agenticmarket create my-server
 # → Template: Fresh server
 ```
 
-### API Wrapper
+### API Wrapper — Turn Any REST API Into a Monetizable MCP Server
 
-REST API → MCP bridge. Pre-configured HTTP client with auth injection, timeouts, and error mapping.
+This is the fastest path from "I have a REST API" to "I'm earning per call on AgenticMarket."
 
 ```bash
 agenticmarket create my-api-wrapper
@@ -78,7 +78,33 @@ agenticmarket create my-api-wrapper
 # → Header: x-api-key
 ```
 
-Generates `src/lib/api-client.ts` with pre-configured `apiClient.get()`, `apiClient.post()`, etc.
+**What you'd write manually:**
+
+```typescript
+// Manual: ~80 lines of boilerplate per tool
+const res = await fetch("https://api.example.com/data?q=test", {
+  headers: { "x-api-key": process.env.API_KEY ?? "" },
+  signal: AbortSignal.timeout(10000),
+});
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+const data = await res.json();
+// ...plus error handling, timeout retries, auth type switching...
+```
+
+**What the scaffold gives you:**
+
+```typescript
+// Generated: auth, timeout, errors handled automatically
+const data = await apiClient.get("/data", { q: "test" });
+```
+
+The generated `src/lib/api-client.ts` handles:
+- **Auth injection** — API key, Bearer token, or none (configured via `.env`)
+- **Timeout** — `AbortController` with configurable ms (default 10s)
+- **Error mapping** — typed `ApiClientError` with status code + message
+- **Methods** — `apiClient.get()`, `.post()`, `.put()`, `.delete()`
+
+Every tool you add with `agenticmarket add tool` auto-imports `apiClient` and includes proper `ApiClientError` handling. You write the business logic, the scaffold handles the plumbing.
 
 ---
 
@@ -91,7 +117,8 @@ my-server/
 │   ├── middleware/
 │   │   ├── security.ts           # Auth, HTTPS, CORS, CSP, header stripping
 │   │   ├── rateLimit.ts          # Per-IP sliding window rate limiter
-│   │   └── logger.ts             # Dev request logger (auto-disabled in prod)
+│   │   ├── logger.ts             # Dev request logger (auto-disabled in prod)
+│   │   └── audit.ts              # Structured JSON audit log (production only)
 │   ├── tools/
 │   │   ├── index.ts              # Tool registry
 │   │   └── echo.ts               # Reference tool with Zod validation
@@ -134,15 +161,17 @@ Every security layer ships **enabled by default** and is imported as middleware 
 ```
 Request
   ↓
-1. Dev Logger       — timestamped [HH:MM:SS] method path status duration
+1. Dev Logger       — timestamped [HH:MM:SS] colored output (dev only)
   ↓
-2. Body Limit       — rejects payloads > 1 MB (prevents memory DoS)
+2. Audit Logger     — structured JSON per line (production only)
   ↓
-3. Security         — HTTPS enforcement, secret validation, headers
+3. Body Limit       — rejects payloads > 1 MB (prevents memory DoS)
   ↓
-4. Rate Limiter     — per-IP sliding window (100 req/60s default)
+4. Security         — HTTPS enforcement, secret validation, headers
   ↓
-5. Router           — /health, /mcp (POST/GET/DELETE)
+5. Rate Limiter     — per-IP sliding window (100 req/60s default)
+  ↓
+6. Router           — /health, /mcp (POST/GET/DELETE)
 ```
 
 ### Security Middleware Detail
@@ -222,51 +251,57 @@ Handles `SIGTERM` (Docker/K8s stop) and `SIGINT` (Ctrl+C):
 
 ## Adding Tools
 
-### 1. Create tool file
-
-```typescript
-// src/tools/get-weather.ts
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
-export function registerGetWeatherTool(server: McpServer): void {
-  server.tool(
-    "get_weather",
-    "Get current weather for a city",
-    {
-      city: z.string().describe("City name, e.g. 'London'"),
-      units: z.enum(["celsius", "fahrenheit"]).default("celsius"),
-    },
-    async ({ city, units }) => {
-      // Your logic here
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Weather for ${city}: 22°${units === "celsius" ? "C" : "F"}`,
-        }],
-      };
-    },
-  );
-}
-```
-
-### 2. Register in tools/index.ts
-
-```typescript
-import { registerGetWeatherTool } from "./get-weather.js";
-
-export function registerTools(server: McpServer): void {
-  registerEchoTool(server);
-  registerGetWeatherTool(server);
-}
-```
-
-### 3. Test
+### Option A: CLI generator (recommended)
 
 ```bash
-npm run inspect     # Browser UI at localhost:6274
-npm run test:tools  # CLI mode for CI
+agenticmarket add tool get-weather
 ```
+
+This creates `src/tools/get-weather.ts` with Zod schema skeleton and auto-registers it in `tools/index.ts`. Auto-detects fresh vs api-wrapper template.
+
+### Option B: Manual
+
+1. Create `src/tools/get-weather.ts` with register function
+2. Import + call in `src/tools/index.ts`
+3. Test with `npm run inspect`
+
+---
+
+## CI / Automation (`--json` flag)
+
+```bash
+agenticmarket create my-server --template fresh --json
+```
+
+Outputs a single JSON object (no interactive prompts, no colors):
+
+```json
+{
+  "name": "my-server",
+  "path": "/users/dev/my-server",
+  "template": "fresh",
+  "deploy": "cloudflare",
+  "tools": ["echo"],
+  "mcpName": "io.github.dev/my-server"
+}
+```
+
+---
+
+## Pre-Publish Validation
+
+```bash
+agenticmarket validate
+```
+
+Runs 30+ security and schema checks:
+- `.mcp/server.json` schema compliance
+- `MCP_SECRET` configured
+- Security middleware present (timing-safe, CSP, rate limiting)
+- No hardcoded secrets in source
+- No `zod/v4` import conflicts
+- Dockerfile hardening (non-root, HEALTHCHECK)
+- Package configuration complete
 
 ---
 
@@ -370,7 +405,7 @@ Set pricing on [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/da
 |-------|-----------|-----|
 | **HTTP** | [Hono](https://hono.dev) | Ultra-fast, 0-dep, middleware-first |
 | **MCP** | [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | Official SDK, Streamable HTTP transport |
-| **Bridging** | [fetch-to-node](https://github.com/nicolo-ribaudo/fetch-to-node) | Hono Fetch↔Node IncomingMessage/ServerResponse |
+| **Bridging** | [fetch-to-node](https://github.com/nicolo-ribaudo/fetch-to-node) | Hono uses the Web Fetch API internally — this adapter lets it run on Node.js HTTP without rewriting your server code |
 | **Validation** | [Zod](https://zod.dev) | Type-safe input schemas for tools |
 | **TypeScript** | Strict mode | Full type safety across the project |
 | **Build** | [tsup](https://tsup.egoist.dev) | Zero-config ESM bundler |
@@ -380,7 +415,7 @@ Set pricing on [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/da
 
 ## Roadmap
 
-### ✅ Shipped
+### ✅ All Shipped
 
 | Feature | Status |
 |---------|--------|
@@ -391,22 +426,17 @@ Set pricing on [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/da
 | Session timeout (30 min idle) | ✅ |
 | Graceful shutdown (SIGTERM/SIGINT) | ✅ |
 | Dev request logger with timestamps | ✅ |
+| Audit logging (structured JSON, production) | ✅ |
 | Rich startup banner | ✅ |
 | AGENTS.md for AI assistants | ✅ |
 | MCP Inspector integration | ✅ |
 | Hardened Dockerfile (non-root, HEALTHCHECK) | ✅ |
 | Auto-generated .env with secret | ✅ |
+| `--json` flag for CI automation | ✅ |
+| `agenticmarket add tool <name>` | ✅ |
+| `agenticmarket validate` pre-publish audit | ✅ |
 
-### 🔜 Next Sprint
-
-| Feature | Description |
-|---------|-------------|
-| `--json` flag | CI-friendly output for automation pipelines |
-| `agenticmarket add tool <name>` | Post-scaffold tool generator (like `ng generate`) |
-| Audit logging middleware | Log tool name + IP + timestamp per call |
-| `agenticmarket validate` | Pre-publish security audit + schema check |
-
-### 📋 Phase 2
+### 📋 Future
 
 | Feature | Description |
 |---------|-------------|
@@ -420,13 +450,13 @@ Set pricing on [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/da
 ## Test Coverage
 
 ```bash
-node test/test-create.js    # 108 assertions — templates, tokens, security, infra
+node test/test-create.js    # 132 assertions — templates, tokens, security, infra, CLI
 node test/test-e2e.js       # Scaffold → install → run → health → auth check
 ```
 
 | Category | Assertions |
 |----------|-----------|
-| File existence | 16 |
+| File existence | 17 |
 | Token resolution | 2 |
 | Branding (_meta, badges) | 10 |
 | package.json | 10 |
@@ -441,7 +471,10 @@ node test/test-e2e.js       # Scaffold → install → run → health → auth c
 | Logger middleware | 5 |
 | Startup banner | 3 |
 | Name validation | 6 |
-| **Total** | **108 + E2E** |
+| Audit logger | 6 |
+| CLI commands (validate, add-tool) | 11 |
+| JSON mode | 6 |
+| **Total** | **132 + E2E** |
 
 ---
 

@@ -105,6 +105,7 @@ const freshFiles = [
   "src/middleware/security.ts",
   "src/middleware/rateLimit.ts",
   "src/middleware/logger.ts",
+  "src/middleware/audit.ts",
   "src/tools/index.ts",
   "src/tools/echo.ts",
   "src/types.ts",
@@ -409,6 +410,62 @@ assert(validateName("") !== true, 'rejects empty name');
 assert(validateName("-bad") !== true, 'rejects name starting with dash');
 assert(validateName("UPPERCASE") !== true, 'rejects uppercase');
 assert(validateName("has spaces") !== true, 'rejects spaces');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST 17: Audit logger middleware
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log("\n  ── Audit Logger ──\n");
+
+const auditTs = fs.readFileSync(
+  path.join(freshTarget, "src", "middleware", "audit.ts"),
+  "utf-8",
+);
+assert(auditTs.includes("auditLogger"), "audit.ts exports auditLogger");
+assert(auditTs.includes("JSON.stringify"), "audit.ts outputs structured JSON");
+assert(auditTs.includes("X-Request-ID"), "audit.ts includes request ID");
+assert(auditTs.includes("mcp-session-id"), "audit.ts includes session ID");
+assert(auditTs.includes('NODE_ENV === "production"'), "audit.ts is production-only");
+assert(indexTs.includes("auditLogger()"), "index.ts wires auditLogger middleware");
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST 18: CLI command files exist
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log("\n  ── CLI Commands ──\n");
+
+const cliDir = path.join(__dirname, "..", "src", "commands");
+assert(fs.existsSync(path.join(cliDir, "validate.js")), "validate.js command exists");
+assert(fs.existsSync(path.join(cliDir, "add-tool.js")), "add-tool.js command exists");
+
+const validateCmd = fs.readFileSync(path.join(cliDir, "validate.js"), "utf-8");
+assert(validateCmd.includes("server.json"), "validate checks server.json");
+assert(validateCmd.includes("MCP_SECRET"), "validate checks MCP_SECRET");
+assert(validateCmd.includes("timingSafeEqual"), "validate checks timing-safe comparison");
+assert(validateCmd.includes("zod/v4"), "validate scans for zod/v4 conflicts");
+assert(validateCmd.includes("HEALTHCHECK"), "validate checks Dockerfile HEALTHCHECK");
+
+const addToolCmd = fs.readFileSync(path.join(cliDir, "add-tool.js"), "utf-8");
+assert(addToolCmd.includes("toPascal"), "add-tool generates PascalCase names");
+assert(addToolCmd.includes("toSnake"), "add-tool generates snake_case names");
+assert(addToolCmd.includes("tools/index.ts"), "add-tool auto-registers in index.ts");
+assert(addToolCmd.includes("isApiWrapper"), "add-tool detects api-wrapper template");
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST 19: --json flag support
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log("\n  ── JSON Mode ──\n");
+
+const createCmd = fs.readFileSync(path.join(cliDir, "create.js"), "utf-8");
+assert(createCmd.includes("jsonMode"), "create.js supports --json flag");
+assert(createCmd.includes("JSON.stringify"), "create.js outputs JSON in json mode");
+assert(createCmd.includes("options.json"), "create.js reads json option");
+
+const cliJs = fs.readFileSync(path.join(__dirname, "..", "bin", "cli.js"), "utf-8");
+assert(cliJs.includes('flags.includes("--json")'), "cli.js passes --json flag to create");
+assert(cliJs.includes("validate"), "cli.js routes validate command");
+assert(cliJs.includes("addTool"), "cli.js routes add tool command");
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RESULT

@@ -8,6 +8,7 @@ import { toFetchResponse, toReqRes } from "fetch-to-node";
 import { securityMiddleware } from "./middleware/security.js";
 import { rateLimitMiddleware } from "./middleware/rateLimit.js";
 import { devLogger } from "./middleware/logger.js";
+import { auditLogger } from "./middleware/audit.js";
 import { registerTools } from "./tools/index.js";
 
 // ── App Setup ──────────────────────────────────────────────────────────────────
@@ -15,11 +16,13 @@ import { registerTools } from "./tools/index.js";
 const app = new Hono();
 
 // Apply middleware — order matters:
-// 1. Logger (captures final status code from downstream)
-// 2. Body limit (reject oversized payloads before parsing)
-// 3. Security (auth, HTTPS, CORS, headers)
-// 4. Rate limiting (per-IP sliding window)
+// 1. Dev logger (colored, human-readable — dev only)
+// 2. Audit logger (structured JSON — production only)
+// 3. Body limit (reject oversized payloads before parsing)
+// 4. Security (auth, HTTPS, CORS, headers)
+// 5. Rate limiting (per-IP sliding window)
 app.use("*", devLogger());
+app.use("*", auditLogger());
 app.use("*", bodyLimit({ maxSize: 1024 * 1024 })); // 1 MB
 app.use("*", securityMiddleware());
 app.use("*", rateLimitMiddleware());
