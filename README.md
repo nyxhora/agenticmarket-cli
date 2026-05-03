@@ -126,6 +126,12 @@ agenticmarket create <project-name>
 agenticmarket create my-weather-api
 ```
 
+**Option A: Fresh Server** (Start from scratch)
+![Fresh Server Scaffold UI](https://cdn.agenticmarket.dev/docs/fresh-mcp-creation-terminal-ui.jpg)
+
+**Option B: API Wrapper** (Turn an existing REST API into an MCP server)
+![API Wrapper Scaffold UI](https://cdn.agenticmarket.dev/docs/api-wrapper-terminal-ui.jpg)
+
 Interactive prompts ask for:
 
 | Prompt | Options |

@@ -11,7 +11,7 @@
     "inspect": "npx @modelcontextprotocol/inspector tsx --env-file=.env src/index.ts",
     "test:tools": "npx @modelcontextprotocol/inspector --cli tsx --env-file=.env src/index.ts",
     "validate": "npx agenticmarket validate",
-    "release": "npm version patch && npx agenticmarket publish"
+    "release": "npm version patch && echo Submit your server at https://agenticmarket.dev/dashboard/submit"
   },
   "dependencies": {
     "hono": "^4.7.0",

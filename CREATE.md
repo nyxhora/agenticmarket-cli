@@ -66,6 +66,9 @@ agenticmarket create my-server
 # → Template: Fresh server
 ```
 
+![Fresh Server Scaffold UI](https://cdn.agenticmarket.dev/docs/fresh-mcp-creation-terminal-ui.jpg)
+
+
 ### API Wrapper — Turn Any REST API Into a Monetizable MCP Server
 
 This is the fastest path from "I have a REST API" to "I'm earning per call on AgenticMarket."
@@ -74,9 +77,12 @@ This is the fastest path from "I have a REST API" to "I'm earning per call on Ag
 agenticmarket create my-api-wrapper
 # → Template: API wrapper
 # → Base URL: https://api.example.com
+# → First endpoint: /users
 # → Auth: api-key
 # → Header: x-api-key
 ```
+
+![API Wrapper Scaffold UI](https://cdn.agenticmarket.dev/docs/api-wrapper-terminal-ui.jpg)
 
 **What you'd write manually:**
 
@@ -394,7 +400,7 @@ npm run test:tools
 
 ```bash
 npm run validate    # Pre-publish checks: server.json schema, security posture, endpoints
-npm run release     # Bump version + submit to agenticmarket.dev
+npm run release     # Bump version
 ```
 
 Set pricing on [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/dashboard/submit). You earn 80% of every call.

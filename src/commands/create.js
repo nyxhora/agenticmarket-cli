@@ -281,6 +281,13 @@ export async function create(projectName, options = {}) {
         validate: (v) => (v ? true : "URL is required"),
       },
       {
+        type: "text",
+        name: "endpoint",
+        message: "First endpoint path to wrap (e.g., /users, /weather)",
+        initial: "/data",
+        validate: (v) => (v.startsWith("/") ? true : "Must start with /"),
+      },
+      {
         type: "select",
         name: "authType",
         message: "Auth type",
@@ -300,6 +307,7 @@ export async function create(projectName, options = {}) {
 
     apiBaseUrl = apiRes.baseUrl;
     authType = apiRes.authType;
+    exampleEndpoint = apiRes.endpoint;
 
     if (authType !== "none") {
       const headerRes = await prompts({
@@ -309,17 +317,6 @@ export async function create(projectName, options = {}) {
         initial: authType === "bearer" ? "Authorization" : "x-api-key",
       });
       if (headerRes.header) authHeader = headerRes.header;
-    }
-
-    // Extract example endpoint from URL path
-    try {
-      const url = new URL(apiBaseUrl);
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts.length > 0) {
-        exampleEndpoint = "/" + parts[parts.length - 1];
-      }
-    } catch {
-      // keep default
     }
   }
 
