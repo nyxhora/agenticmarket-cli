@@ -4,6 +4,7 @@
  * bin/cli.js — AgenticMarket CLI
  *
  * Commands:
+ *   agenticmarket create <name>              — scaffold a new MCP server project
  *   agenticmarket auth <api-key>            — save your API key
  *   agenticmarket install <user>/<skill>    — add an official server to your IDE
  *   agenticmarket install <slug>            — add a community server to your IDE
@@ -24,6 +25,7 @@ import { balance } from "../src/commands/balance.js";
 import { logout } from "../src/commands/logout.js";
 import { whoami } from "../src/commands/whoami.js";
 import { proxy } from "../src/commands/proxy.js";
+import { create } from "../src/commands/create.js";
 
 const VERSION = "1.4.1";
 const args = process.argv.slice(2);
@@ -144,6 +146,7 @@ const help = () => {
     console.log(`  ${col1}${col2}${col3}`);
   };
 
+  cmd("create",  "<name>",              "Scaffold a new MCP server project");
   cmd("auth",    "<api-key>",           "Save your API key");
   cmd("install", "<username>/<server>", "Install an official MCP server");
   cmd("install", "<slug>",              "Install a community MCP server");
@@ -162,6 +165,9 @@ const help = () => {
   c.gap();
 
   const ex = (line) => console.log(`  ${chalk.dim("$")} ${chalk.white(line)}`);
+  console.log(chalk.dim("  # Create a new MCP server"));
+  ex("agenticmarket create my-weather-server");
+  c.gap();
   ex("agenticmarket auth am_live_xxxxxxxxxxxx");
   c.gap();
   console.log(chalk.dim("  # Official servers (proxy)"));
@@ -211,6 +217,10 @@ const unknownCmd = (cmd) => {
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 switch (command) {
+  case "create":
+    await create(argument);
+    break;
+
   case "auth":
     if (!argument) argError("auth", "<api-key>");
     await auth(argument);

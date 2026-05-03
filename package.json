@@ -9,7 +9,8 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "src/templates"
   ],
   "scripts": {
     "dev": "node bin/cli.js",

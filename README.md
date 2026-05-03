@@ -1,6 +1,6 @@
-# AgenticMarket — Install MCP Servers in One Command
+# AgenticMarket — Build and Install MCP Servers in One Command
 
-> The CLI-first platform for Model Context Protocol servers. Browse, install, and manage MCP servers across every major AI coding tool — no JSON editing, no manual configuration.
+> The CLI for Model Context Protocol servers. Create production-ready MCP servers from scratch, or install existing ones into every IDE — no JSON editing, no manual configuration.
 
 [![npm version](https://img.shields.io/npm/v/agenticmarket)](https://www.npmjs.com/package/agenticmarket)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
@@ -10,13 +10,24 @@
 
 ## TL;DR
 
+**Build a new MCP server:**
+
 ```bash
 npm install -g agenticmarket
+agenticmarket create my-weather-server
+cd my-weather-server && npm install && npm run dev
+```
+
+**Install an existing MCP server:**
+
+```bash
 agenticmarket auth <your-api-key>
 agenticmarket install username/server-name
 ```
 
-That installs any MCP server into VS Code, Cursor, Claude Desktop, and every other IDE you have — automatically, without touching a config file. Credits are deducted per successful tool call.
+`create` scaffolds a production-ready Hono + TypeScript MCP server with security middleware, rate limiting, and deployment config in ~30 seconds.
+
+`install` writes MCP entries into VS Code, Cursor, Claude Desktop, and every other IDE you have — automatically.
 
 **[Browse MCP servers →](https://agenticmarket.dev/servers)**  
 **[Get your API key →](https://agenticmarket.dev/dashboard/api-keys)**  
@@ -31,6 +42,8 @@ That installs any MCP server into VS Code, Cursor, Claude Desktop, and every oth
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
+  - [`create`](#create) — scaffold a new MCP server
+  - [`auth`](#auth) / [`install`](#install) / [`remove`](#remove) / [`list`](#list) / [`balance`](#balance) / [`whoami`](#whoami)
 - [Supported IDEs](#supported-ides)
 - [How It Works](#how-it-works)
 - [For MCP Server Creators](#for-mcp-server-creators)
@@ -57,9 +70,9 @@ Submit your HTTP MCP server to AgenticMarket, get a proxy secret, and start earn
 
 ## Requirements
 
-- Node.js 18 or higher
-- At least one [supported IDE](#supported-ides) installed
-- An [AgenticMarket account](https://agenticmarket.dev) and API key
+- Node.js 20.6 or higher
+- For `install` commands: at least one [supported IDE](#supported-ides) and an [AgenticMarket API key](https://agenticmarket.dev/dashboard/api-keys)
+- For `create`: no account required
 
 ---
 
@@ -103,6 +116,66 @@ The CLI detects every IDE installed on your machine and writes the correct confi
 ---
 
 ## Commands
+
+### `create`
+
+Scaffold a new MCP server project with security middleware, rate limiting, and deployment config.
+
+```bash
+agenticmarket create <project-name>
+agenticmarket create my-weather-api
+```
+
+Interactive prompts ask for:
+
+| Prompt | Options |
+|--------|---------|
+| **Template** | `Fresh server` (blank) or `API wrapper` (REST API → MCP bridge) |
+| **Deploy target** | Cloudflare Workers, Docker (Railway/Render), or None |
+| **Secret auth** | Auto-generates `MCP_SECRET` in `.env` |
+| **API config** *(wrapper only)* | Base URL, auth type, auth header |
+
+**What you get:**
+
+```
+my-weather-api/
+├── src/
+│   ├── index.ts              # Hono server + MCP transport
+│   ├── middleware/
+│   │   ├── security.ts       # HTTPS, secret header, CORS, header stripping
+│   │   └── rateLimit.ts      # Per-IP sliding window (100 req/min)
+│   ├── tools/
+│   │   ├── index.ts          # Tool registry
+│   │   └── echo.ts           # Reference tool (Zod validated)
+│   └── types.ts
+├── .mcp/server.json          # Official MCP registry schema
+├── .env                      # Auto-generated secret
+├── .env.example
+├── package.json              # dev, build, inspect, validate, release scripts
+├── tsconfig.json
+├── wrangler.toml             # or Dockerfile, depending on deploy target
+└── README.md
+```
+
+**Security layers** ship enabled by default and are imported as middleware — difficult to accidentally remove:
+
+- Secret header validation (timing-safe constant-time comparison)
+- HTTPS enforcement in production (hard reject on HTTP)
+- Per-IP rate limiting with `Retry-After` headers
+- CORS (no origins by default)
+- `X-Powered-By` / `Server` header stripping
+- Production requires `MCP_SECRET` (500 if missing)
+
+**After scaffolding:**
+
+```bash
+cd my-weather-api
+npm install
+npm run dev        # server at http://localhost:3000
+npm run inspect    # MCP Inspector UI at localhost:6274
+```
+
+---
 
 ### `auth`
 
@@ -264,6 +337,7 @@ bin/
 src/
   config.js               IDE registry, detection, config read/write, API key storage
   commands/
+    create.js             Scaffold engine — prompts, template copy, token substitution
     auth.js               Save and verify API key
     balance.js            Check credit balance
     install.js            Install an MCP server into IDE config files
@@ -271,6 +345,9 @@ src/
     remove.js             Remove an MCP server from IDE config files
     whoami.js             Show account info
     logout.js             Clear stored API key
+  templates/
+    fresh/                Blank MCP server template (Hono + MCP SDK)
+    api-wrapper/          REST API → MCP bridge template
 ```
 
 ---
@@ -337,6 +414,10 @@ VS Code, Cursor, Claude Desktop, Claude Code, Windsurf, Gemini CLI, Zed, Cline (
 ### I built an MCP server. How do I publish it and start earning?
 
 Submit your server at [agenticmarket.dev/dashboard/submit](https://agenticmarket.dev/dashboard/submit). Your server needs to be a publicly accessible HTTPS endpoint implementing the MCP protocol. After a 24-hour review, you receive a proxy secret to validate on your server. From that point, every call users make through the platform earns you 80% of the call price. The first 100 approved creators earn 90% for 12 months under the Founding Creator program.
+
+### How do I create my own MCP server from scratch?
+
+Run `agenticmarket create my-server`. The CLI scaffolds a production-ready Hono + TypeScript project with security middleware, rate limiting, Zod-validated tools, and deployment config. Choose the `Fresh server` template for a blank server or `API wrapper` to bridge an existing REST API. After scaffolding, run `npm install && npm run dev` to start, then `npm run inspect` to test with the MCP Inspector.
 
 ### Is the CLI open source?
 
